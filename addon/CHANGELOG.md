@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0
+
+**Breaking MQTT availability change:** `cez_pnd/{meter_id}/availability` is replaced by `cez_pnd/availability`. Update manually configured sensors and MQTT triggers before upgrading; see the README upgrade guide. Discovery-managed entities are updated in place. Old retained availability messages are removed only after all discovery configurations have been acknowledged.
+
+- Preserve the original HDO tariff `sensor` and correct its metadata. Add a distinct binary sensor disabled by default; existing dashboard and automation references do not need to change.
+- Correct Rv to reserved power, as defined by the ČEZ PND manual. Use `power` and the default name “Reserved Power / Rezervovaný výkon”; preserve source kW values, legacy topics, unique ID and parser names. The four Ri/Rc channels retain var units and `reactive_power`. Validate every discovery payload against Home Assistant schemas and verify real Rv state delivery and upgrade identity.
+- Document pre-upgrade steps, manual MQTT YAML examples, shared availability semantics, and rollback cleanup. Version 0.5.0 replaces the unreleased 0.4.2 candidate.
+- Follow-up review: contain batch/browser setup failures so HDO and later cycles continue; treat empty dated HDO windows as unknown.
+- Allow up to 60 seconds for the initial broker connection, stage complete meter/HDO updates before sending, and retry interrupted retained replay even without another reconnect.
+- Start cleanup alongside polling cancellation, interrupt MQTT connection/acknowledgement waits, and enforce a 10-second process shutdown grace period (exit status 1 if cleanup cannot finish).
+- Obtain MQTT host, port, authentication, and TLS settings from the Home Assistant Supervisor MQTT service. Existing local environment overrides remain supported.
+- Wait for broker acceptance and publish acknowledgements before reporting success; maintain the MQTT network loop and replay retained discovery/state after reconnect.
+- Use shared connection availability so every meter becomes unavailable after a crash; migrate discovery availability and repair invalid HDO metadata without deleting existing sensor discovery.
+- Send PND requests as URL-encoded forms. Retry transient assembly failures and force one fresh login per cycle when the portal rejects a session.
+- Verify authentication through protected JSON and close browsers after failed login, cancellation, and shutdown.
+- Support credentials-only automatic meter detection, with an explicit selection required for ambiguous IDs, and unify CEZ environment credentials.
+- Select dated HDO schedules in Europe/Prague, handle full-day windows and midnight transitions, and clear unverifiable values to unknown.
+- Handle SIGTERM/SIGINT with bounded cleanup. Add real HTTP, Mosquitto, and Home Assistant contract regression checks.
+
 ## 0.4.1
 
 - **Fix HDO session lifecycle bug** — `ensure_session()` now triggers re-login when session cookies are valid but no live browser context exists (fresh process start). Previously returned cookies-only session, causing HDO to silently fail with `[HDO_FETCH_ERROR] No live browser context available for HDO`.
