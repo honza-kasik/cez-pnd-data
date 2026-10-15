@@ -51,7 +51,9 @@ async def request_data(
     payload = build_pnd_payload(assembly_id, date_from, date_to, meter_id)
     response = await context.request.post(
         PND_DATA_URL,
-        form={k: "" if v is None else v for k, v in payload.items()},
+        # Preserve the original request's JSON encoding. URL-encoded forms are
+        # rejected by the portal protection layer before reaching PND.
+        data={k: "" if v is None else v for k, v in payload.items()},
         max_redirects=0,
     )
     if response.status in (301, 302, 303, 307, 308, 401, 403):

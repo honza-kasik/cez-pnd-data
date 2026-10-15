@@ -131,13 +131,18 @@ async def test_supervisor_transient_failure_and_final_failure(http_server, monke
 
 
 @pytest.mark.asyncio
-async def test_real_playwright_form_encoding_and_redirect_classification(
+async def test_real_playwright_original_json_encoding_and_redirect_classification(
     http_server, monkeypatch
 ):
     captured = []
 
     async def handler(request):
-        captured.append((request.content_type, dict(await request.post())))
+        if request.content_type != "application/json":
+            return web.Response(
+                text="<html>The requested URL was rejected.</html>",
+                content_type="text/html",
+            )
+        captured.append((request.content_type, await request.json()))
         if request.path == "/redirect":
             raise web.HTTPFound("/login")
         return web.json_response(READING)
@@ -155,10 +160,10 @@ async def test_real_playwright_form_encoding_and_redirect_classification(
             )
             assert captured == [
                 (
-                    "application/x-www-form-urlencoded",
+                    "application/json",
                     {
                         "format": "table",
-                        "idAssembly": "-1003",
+                        "idAssembly": -1003,
                         "idDeviceSet": "",
                         "intervalFrom": "today",
                         "intervalTo": "today",
@@ -325,8 +330,16 @@ async def test_portal_url_is_not_login_proof():
 
 
 @pytest.mark.asyncio
-async def test_login_probe_waits_for_sso_redirect(monkeypatch):
+async def test_login_probe_waits_for_sso_redirect(monkeypatch, http_server):
     authenticated = False
+
+    async def dashboard(request):
+        if request.path == "/":
+            raise web.HTTPFound("/external/dashboard/view")
+        return web.Response(text="<html>Portal</html>", content_type="text/html")
+
+    base = await http_server(dashboard)
+    monkeypatch.setattr("addon.src.auth.PND_BASE_URL", base)
 
     async def probe(*args):
         if not authenticated:
@@ -339,7 +352,7 @@ async def test_login_probe_waits_for_sso_redirect(monkeypatch):
             authenticated = True
         body = (
             "<script>setTimeout(() => location.href = "
-            '"/cezpnd2/dashboard/view?complete=1", 200)</script>'
+            '"/cezpnd2/external/dashboard/view?complete=1", 200)</script>'
             if route.request.url.endswith("/login")
             else "<html>Portal</html>"
         )
@@ -356,8 +369,30 @@ async def test_login_probe_waits_for_sso_redirect(monkeypatch):
             await page.goto("https://pnd.cezdistribuce.cz/cezpnd2/login")
             await asyncio.wait_for(_wait_for_login_success(page), timeout=15)
             assert authenticated
+            assert page.url == base + "/external/dashboard/view"
         finally:
             await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_pnd_server_error_during_login_is_not_reported_as_expired_credentials(
+    caplog,
+):
+    auth = SimpleNamespace(
+        ensure_session=AsyncMock(side_effect=PndFetchError("HTTP 500", status_code=500))
+    )
+    publisher = MagicMock()
+    orchestrator = Orchestrator(
+        OrchestratorConfig([{"electrometer_id": "123", "ean": ""}]),
+        auth,
+        AsyncMock(),
+        publisher,
+    )
+    await orchestrator.run_once()
+    assert "[CEZ_FETCH_ERROR]" in caplog.text
+    assert "HTTP 500" in caplog.text
+    assert "[SESSION_EXPIRED]" not in caplog.text
+    publisher.publish_state.assert_not_called()
 
 
 @pytest.mark.asyncio

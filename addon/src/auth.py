@@ -183,7 +183,8 @@ async def _wait_for_login_success(page: Any) -> None:
             ),
             timeout=120_000,
         )
-        await page.goto(f"{PND_BASE_URL}/dashboard/view", wait_until="domcontentloaded")
+        # Let PND select its current dashboard route; /dashboard/view is a 404.
+        await page.goto(PND_BASE_URL, wait_until="domcontentloaded")
         # Match the established live-verification flow: let the dashboard finish
         # establishing the browser session before making direct API requests.
         await asyncio.sleep(5)

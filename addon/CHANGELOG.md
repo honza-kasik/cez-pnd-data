@@ -13,7 +13,7 @@
 - Obtain MQTT host, port, authentication, and TLS settings from the Home Assistant Supervisor MQTT service. Existing local environment overrides remain supported.
 - Wait for broker acceptance and publish acknowledgements before reporting success; maintain the MQTT network loop and replay retained discovery/state after reconnect.
 - Use shared connection availability so every meter becomes unavailable after a crash; migrate discovery availability and repair invalid HDO metadata without deleting existing sensor discovery.
-- Send PND requests as URL-encoded forms. Retry transient assembly failures and force one fresh login per cycle when the portal rejects a session.
+- Preserve the original Playwright JSON request encoding; URL-encoded forms are rejected by portal protection. Navigate through the PND entry URL instead of the nonexistent `/dashboard/view` route. Retry transient assembly failures and force one fresh login per cycle when the portal rejects a session. Report PND validation/server errors separately from expired credentials.
 - Verify authentication through protected JSON and close browsers after failed login, cancellation, and shutdown.
 - Support credentials-only automatic meter detection, with an explicit selection required for ambiguous IDs, and unify CEZ environment credentials.
 - Select dated HDO schedules in Europe/Prague, handle full-day windows and midnight transitions, and clear unverifiable values to unknown.

@@ -145,6 +145,14 @@ class Orchestrator:
             logger.warning("[%s] %s — skipping cycle", PORTAL_MAINTENANCE, e)
             await self._clear_all_hdo()
             return
+        except PndFetchError as e:
+            logger.error(
+                "[%s] PND session validation failed: %s — skipping cycle",
+                CEZ_FETCH_ERROR,
+                e,
+            )
+            await self._clear_all_hdo()
+            return
         except Exception as e:
             logger.error(
                 "[%s] Auth failure — cannot obtain session: %s — skipping cycle",

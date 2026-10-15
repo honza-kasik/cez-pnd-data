@@ -80,7 +80,7 @@ class PndFetcher:
                 try:
                     page = await context.new_page()
                     await page.goto(
-                        "https://pnd.cezdistribuce.cz/cezpnd2/dashboard/view",
+                        PND_BASE_URL,
                         wait_until="domcontentloaded",
                         timeout=30_000,
                     )

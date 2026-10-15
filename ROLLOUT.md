@@ -4,7 +4,7 @@
 
 0.5.0 contains a breaking availability-topic change for manual consumers. The unreleased 0.4.2 candidate must not be published under its old version. Follow the README upgrade guide, including manual MQTT configuration changes and rollback cleanup.
 
-Local automated verification covers real Supervisor-shaped HTTP responses, Playwright form serialization, Mosquitto authentication/delivery/reconnect/LWT, and Home Assistant HDO discovery/unknown-state contracts. The upgrade test must use real Home Assistant entity registries and Mosquitto; schema validation alone does not establish migration safety.
+Local automated verification covers real Supervisor-shaped HTTP responses, Playwright JSON serialization, Mosquitto authentication/delivery/reconnect/LWT, and Home Assistant HDO discovery/unknown-state contracts. The upgrade test must use real Home Assistant entity registries and Mosquitto; schema validation alone does not establish migration safety.
 
 For the isolated Home Assistant checks, use Python 3.14, install `requirements_homeassistant_test.txt` and Mosquitto (including `mosquitto_passwd`), then run `REQUIRE_MQTT_INTEGRATION=1 python -m pytest tests/test_homeassistant_contract.py tests/test_homeassistant_upgrade.py --no-cov -q`. Tests create temporary configuration directories and localhost-only services, and disable automatic Home Assistant dependency installation. The Supervisor Python client is needed by the MQTT configuration-flow import; the tests do not require a running Supervisor.
 
@@ -22,7 +22,9 @@ Before publishing the normal update from the original repository:
 - Restart Mosquitto; confirm recovery without restarting the add-on. Stop and abruptly terminate the add-on; confirm all meters become unavailable.
 - Verify real CEZ login, a polling cycle, session recovery, and a later polling cycle. Watch for browser accumulation during login failures.
 
-The local machine has no Docker executable or live Home Assistant OS/CEZ test account available. The image build and live deployment checks remain release gates, not completed validations.
+Read-only live checks on 2026-10-15 confirmed that URL-encoded data requests receive a portal-protection rejection, while the original JSON requests reach a PND HTTP 500 response. The authenticated PND dashboard also returned HTTP 500 in a normal browser, and the hard-coded `/cezpnd2/dashboard/view` URL returned 404. Request encoding and navigation have been corrected; successful live data delivery and automatic meter detection remain unverified until the PND error is resolved. No service-wide outage or account block has been confirmed.
+
+The local machine has no Docker executable or live Home Assistant OS installation available. The image build and live deployment checks remain release gates, not completed validations.
 
 ## Pre-release Checklist
 
