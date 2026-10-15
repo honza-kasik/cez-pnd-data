@@ -63,18 +63,43 @@ async def request_data(
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type.lower():
         text = (await response.text()).lower()
-        logger.warning(
-            "PND fetch returned non-JSON response (Content-Type: %s)", content_type
-        )
         if "odstávka" in text or "odstavka" in text:
-            raise ServiceMaintenanceError("PND portal is in maintenance")
-        if any(
+            category = "maintenance"
+        elif any(
             marker in text
             for marker in ('name="username"', "name='username'", "oauth", "login")
         ):
+            category = "login"
+        elif any(
+            marker in text
+            for marker in (
+                "the requested url was rejected",
+                "request rejected",
+                "access denied",
+                "captcha",
+                "checking your browser",
+            )
+        ):
+            category = "portal-protection"
+        else:
+            category = "unrecognized-html"
+        # Log only fixed categories, never response HTML, cookies or tokens.
+        logger.warning(
+            "PND fetch returned non-JSON response "
+            "(HTTP %d, Content-Type: %s, category: %s, assembly: %s, body length: %d)",
+            response.status,
+            content_type,
+            category,
+            assembly_id,
+            len(text),
+        )
+        if category == "maintenance":
+            raise ServiceMaintenanceError("PND portal is in maintenance")
+        if category == "login":
             raise SessionExpiredError("PND fetch returned a login page")
         raise PndFetchError(
-            f"PND fetch returned non-JSON response (Content-Type: {content_type})"
+            f"PND fetch returned non-JSON response "
+            f"(Content-Type: {content_type}, category: {category})"
         )
     try:
         data = await response.json()
