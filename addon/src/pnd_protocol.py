@@ -1,0 +1,96 @@
+"""PND wire format and errors shared by authentication and polling."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+PND_DATA_URL = "https://pnd.cezdistribuce.cz/cezpnd2/external/data"
+
+
+class SessionExpiredError(Exception):
+    """Raised when the CEZ session is expired or rejected (e.g. HTTP 401)."""
+
+
+class ServiceMaintenanceError(Exception):
+    """Raised when CEZ/DIP portal is in planned maintenance mode."""
+
+
+class PndFetchError(Exception):
+    """Raised when PND data fetch fails (non-200 response, network error, etc.)."""
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def build_pnd_payload(
+    assembly_id: int, date_from: str, date_to: str, electrometer_id: Optional[str]
+) -> dict[str, Any]:
+    return {
+        "format": "table",
+        "idAssembly": assembly_id,
+        "idDeviceSet": None,
+        "intervalFrom": date_from,
+        "intervalTo": date_to,
+        "compareFrom": None,
+        "opmId": None,
+        "electrometerId": electrometer_id or "",
+    }
+
+
+async def request_data(
+    context: Any,
+    meter_id: Optional[str],
+    assembly_id: int,
+    date_from: str,
+    date_to: str,
+) -> dict[str, Any]:
+    payload = build_pnd_payload(assembly_id, date_from, date_to, meter_id)
+    response = await context.request.post(
+        PND_DATA_URL,
+        form={k: "" if v is None else v for k, v in payload.items()},
+        max_redirects=0,
+    )
+    if response.status in (301, 302, 303, 307, 308, 401, 403):
+        raise SessionExpiredError(f"PND session rejected (HTTP {response.status})")
+    if response.status != 200:
+        raise PndFetchError(
+            f"PND fetch failed with status {response.status}", response.status
+        )
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type.lower():
+        text = (await response.text()).lower()
+        logger.warning(
+            "PND fetch returned non-JSON response (Content-Type: %s)", content_type
+        )
+        if "odstávka" in text or "odstavka" in text:
+            raise ServiceMaintenanceError("PND portal is in maintenance")
+        if any(
+            marker in text
+            for marker in ('name="username"', "name='username'", "oauth", "login")
+        ):
+            raise SessionExpiredError("PND fetch returned a login page")
+        raise PndFetchError(
+            f"PND fetch returned non-JSON response (Content-Type: {content_type})"
+        )
+    try:
+        data = await response.json()
+    except Exception as exc:
+        logger.warning("PND fetch JSON parse failed: %s", exc)
+        raise PndFetchError(f"PND fetch JSON parse failed: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("hasData"), bool):
+        raise PndFetchError("PND response is missing hasData")
+    if data["hasData"] and not all(
+        isinstance(data.get(k), list) for k in ("columns", "values")
+    ):
+        raise PndFetchError("PND response has invalid columns/values")
+    logger.debug(
+        "PND fetch assembly=%d status=%d hasData=%s",
+        assembly_id,
+        response.status,
+        data["hasData"],
+    )
+    return data
