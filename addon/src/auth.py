@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from .pnd_protocol import (
     PND_DATA_URL,
+    PndFetchError,
     ServiceMaintenanceError,
     build_pnd_payload,
     request_data,
@@ -175,10 +176,17 @@ async def _wait_for_login_success(page: Any) -> None:
     # A portal URL can still be the login form. Only protected JSON proves login.
     try:
         await page.wait_for_url(
-            re.compile(r"https://(?:pnd|dip)\.cezdistribuce\.cz/.*"),
+            re.compile(
+                r"https://pnd\.cezdistribuce\.cz/cezpnd2/"
+                r"(?:dashboard/|external/dashboard/view)"
+                r"|https://dip\.cezdistribuce\.cz/irj/portal(?:[/?#]|$)"
+            ),
             timeout=120_000,
         )
         await page.goto(f"{PND_BASE_URL}/dashboard/view", wait_until="domcontentloaded")
+        # Match the established live-verification flow: let the dashboard finish
+        # establishing the browser session before making direct API requests.
+        await asyncio.sleep(5)
         today = datetime.now(ZoneInfo("Europe/Prague"))
         start = today.strftime("%d.%m.%Y 00:00")
         end = today.strftime("%d.%m.%Y 23:59")
@@ -190,7 +198,15 @@ async def _wait_for_login_success(page: Any) -> None:
         except Exception:
             logger.debug("Authentication warmup failed", exc_info=True)
         await asyncio.sleep(1)
-        await request_data(context, None, -1003, start, end)
+        for attempt in range(3):
+            try:
+                await request_data(context, None, -1003, start, end)
+                break
+            except PndFetchError as exc:
+                if exc.status_code is not None or attempt == 2:
+                    raise
+                logger.warning("PND session validation not ready; retrying in 2s")
+                await asyncio.sleep(2)
     except Exception as exc:
         content = (await page.content()).lower()
         if "odstávka" in content or "odstavka" in content:

@@ -325,6 +325,62 @@ async def test_portal_url_is_not_login_proof():
 
 
 @pytest.mark.asyncio
+async def test_login_probe_waits_for_sso_redirect(monkeypatch):
+    authenticated = False
+
+    async def probe(*args):
+        if not authenticated:
+            raise PndFetchError("SSO was interrupted before the authenticated redirect")
+        return {"hasData": False}
+
+    async def portal(route):
+        nonlocal authenticated
+        if route.request.url.endswith("?complete=1"):
+            authenticated = True
+        body = (
+            "<script>setTimeout(() => location.href = "
+            '"/cezpnd2/dashboard/view?complete=1", 200)</script>'
+            if route.request.url.endswith("/login")
+            else "<html>Portal</html>"
+        )
+        await route.fulfill(content_type="text/html", body=body)
+
+    monkeypatch.setattr("addon.src.auth.request_data", probe)
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        try:
+            context = await browser.new_context()
+            await context.route("https://pnd.cezdistribuce.cz/**", portal)
+            monkeypatch.setattr(context.request, "post", AsyncMock())
+            page = await context.new_page()
+            await page.goto("https://pnd.cezdistribuce.cz/cezpnd2/login")
+            await asyncio.wait_for(_wait_for_login_success(page), timeout=15)
+            assert authenticated
+        finally:
+            await browser.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recovers", [True, False])
+async def test_login_probe_retries_temporary_non_json_but_never_accepts_it(recovers):
+    page = AsyncMock()
+    page.content.return_value = "Portal"
+    error = PndFetchError("PND fetch returned non-JSON response")
+    probe = AsyncMock(side_effect=[error, {"hasData": False}] if recovers else error)
+    with (
+        patch("addon.src.auth.request_data", probe),
+        patch("addon.src.auth.asyncio.sleep", new=AsyncMock()),
+    ):
+        if recovers:
+            await _wait_for_login_success(page)
+            assert probe.await_count == 2
+        else:
+            with pytest.raises(PndFetchError, match="non-JSON"):
+                await _wait_for_login_success(page)
+            assert probe.await_count == 3
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure_point", ["new_context", "goto", "verification", "cancel"]
 )
