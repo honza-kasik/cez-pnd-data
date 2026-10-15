@@ -29,7 +29,7 @@ class ParsedReading:
     # Tab 00: quarter-hour profiles
     consumption_kw: Optional[float] = None  # +A (active import)
     production_kw: Optional[float] = None  # -A (active export)
-    reactive_kw: Optional[float] = None  # Rv (reactive)
+    reactive_kw: Optional[float] = None  # Legacy name: Rv reserved power (kW)
     # Tab 03/04: reactive quadrant profiles
     reactive_import_inductive_kw: Optional[float] = None  # +Ri
     reactive_export_capacitive_kw: Optional[float] = None  # -Rc
@@ -137,7 +137,7 @@ class CezDataParser:
         # Tab 00
         self.consumption_col_id: Optional[str] = None
         self.production_col_id: Optional[str] = None
-        self.reactive_col_id: Optional[str] = None
+        self.reactive_col_id: Optional[str] = None  # Legacy name for Rv reserved power
         # Tab 03/04
         self.reactive_import_inductive_col_id: Optional[str] = None
         self.reactive_export_capacitive_col_id: Optional[str] = None
@@ -295,6 +295,7 @@ class CezDataParser:
         """Return the latest reading as a flat dict for MQTT publishing.
 
         Returns None if no readings are available.
+        The legacy key ``reactive_kw`` carries Rv reserved power in kW.
         """
         latest = self.get_latest_reading()
         if latest is None:
