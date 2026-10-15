@@ -164,7 +164,7 @@ class TestPndFetcher:
             )
 
         call_kwargs = mock_context.request.post.call_args[1]
-        sent_payload = call_kwargs["data"]
+        sent_payload = call_kwargs["form"]
         assert sent_payload["idAssembly"] == -1021
         assert sent_payload["intervalFrom"] == "15.02.2026 00:00"
         assert sent_payload["electrometerId"] == "784703"
@@ -224,7 +224,7 @@ class TestPndFetcher:
                 date_to="14.02.2026 00:00",
             )
 
-        sent_payload = mock_context.request.post.call_args[1]["data"]
+        sent_payload = mock_context.request.post.call_args[1]["form"]
         assert sent_payload["electrometerId"] == "999999"
 
     @pytest.mark.asyncio
@@ -242,7 +242,7 @@ class TestPndFetcher:
                 date_to="14.02.2026 00:00",
             )
 
-        sent_payload = mock_context.request.post.call_args[1]["data"]
+        sent_payload = mock_context.request.post.call_args[1]["form"]
         assert sent_payload["electrometerId"] == ""
 
     @pytest.mark.asyncio
@@ -262,7 +262,7 @@ class TestPndFetcher:
                 )
 
         assert "302" in str(exc_info.value)
-        assert "session expired" in str(exc_info.value).lower()
+        assert "session" in str(exc_info.value).lower()
         mock_context.close.assert_called_once()
         mock_browser.close.assert_called_once()
 
@@ -288,14 +288,14 @@ class TestPndFetcher:
         mock_browser.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_403_error_raises_pnd_fetch_error(self) -> None:
+    async def test_403_error_raises_session_expired_error(self) -> None:
         mock_pw, mock_browser, mock_context = _build_playwright_mocks(status=403)
 
         with patch(
             "addon.src.main._get_async_playwright", return_value=lambda: mock_pw
         ):
             fetcher = PndFetcher()
-            with pytest.raises(PndFetchError) as exc_info:
+            with pytest.raises(SessionExpiredError) as exc_info:
                 await fetcher.fetch(
                     SAMPLE_COOKIES,
                     assembly_id=-1003,
@@ -303,7 +303,7 @@ class TestPndFetcher:
                     date_to="14.02.2026 00:00",
                 )
 
-        assert exc_info.value.status_code == 403
+        assert "403" in str(exc_info.value)
         mock_context.close.assert_called_once()
         mock_browser.close.assert_called_once()
 
@@ -347,7 +347,7 @@ class TestFetchOneInContext:
             mock_context, None, -1003, "20.02.2026 00:00", "20.02.2026 23:59"
         )
 
-        sent = mock_context.request.post.call_args[1]["data"]
+        sent = mock_context.request.post.call_args[1]["form"]
         assert sent["electrometerId"] == ""
 
     @pytest.mark.asyncio
