@@ -51,6 +51,79 @@ FAKE_HDO_DATA_FULL = {
 }
 
 
+@pytest.mark.parametrize("interleaved", [False, True])
+def test_multiple_signal_channels_follow_portal_default_without_combining(interleaved):
+    primary = [
+        {"signal": "TEST|1", "datum": "19.10.2026", "casy": "00:00-08:00;20:00-24:00"},
+        {"signal": "TEST|1", "datum": "20.10.2026", "casy": "00:00-06:00"},
+    ]
+    secondary = [
+        {"signal": "TEST|2", "datum": "19.10.2026", "casy": "00:00-24:00"},
+        {"signal": "TEST|3", "datum": "19.10.2026", "casy": "12:00-14:00"},
+        {"signal": "TEST|2", "datum": "20.10.2026", "casy": "00:00-24:00"},
+    ]
+    signals = (
+        [primary[0], *secondary, primary[1]] if interleaved else primary + secondary
+    )
+    now = datetime(2026, 10, 19, 12)
+    result = parse_hdo_signals({"signals": signals}, now=now)
+    assert result == parse_hdo_signals({"signals": primary}, now=now)
+    assert result.signal_name == "TEST|1"
+    assert result.is_low_tariff is False
+    assert result.next_switch == datetime(
+        2026, 10, 19, 20, tzinfo=ZoneInfo("Europe/Prague")
+    )
+    late = parse_hdo_signals({"signals": signals}, now=datetime(2026, 10, 19, 23))
+    assert late.next_switch == datetime(
+        2026, 10, 20, 6, tzinfo=ZoneInfo("Europe/Prague")
+    )
+
+
+def test_first_signal_is_not_assumed_to_have_a_specific_suffix():
+    result = parse_hdo_signals(
+        {
+            "signals": [
+                {"signal": "OTHER", "datum": "19.10.2026", "casy": "00:00-08:00"},
+                {"signal": "TEST|1", "datum": "19.10.2026", "casy": "00:00-24:00"},
+            ]
+        },
+        now=datetime(2026, 10, 19, 12),
+    )
+    assert result.signal_name == "OTHER"
+    assert result.is_low_tariff is False
+
+
+def test_missing_selected_date_does_not_fall_back_to_another_channel():
+    result = parse_hdo_signals(
+        {
+            "signals": [
+                {"signal": "TEST|1", "datum": "18.10.2026", "casy": "00:00-24:00"},
+                {"signal": "TEST|2", "datum": "19.10.2026", "casy": "00:00-24:00"},
+            ]
+        },
+        now=datetime(2026, 10, 19, 12),
+    )
+    assert result.is_low_tariff is None
+    assert result.next_switch is None
+
+
+def test_identical_duplicate_selected_schedule_is_accepted():
+    entry = {"signal": "TEST", "datum": "19.10.2026", "casy": "00:00-08:00"}
+    now = datetime(2026, 10, 19, 7)
+    assert parse_hdo_signals(
+        {"signals": [entry, dict(entry)]}, now=now
+    ) == parse_hdo_signals({"signals": [entry]}, now=now)
+
+
+def test_conflicting_duplicate_selected_schedule_is_rejected():
+    entry = {"signal": "TEST", "datum": "19.10.2026", "casy": "00:00-08:00"}
+    with pytest.raises(ValueError, match="Ambiguous"):
+        parse_hdo_signals(
+            {"signals": [entry, dict(entry, casy="00:00-24:00")]},
+            now=datetime(2026, 10, 19, 12),
+        )
+
+
 # ── Time range parsing ────────────────────────────────────────────────
 
 

@@ -15,6 +15,8 @@ Input format (the "data" portion of the DIP API response):
 
 The response may contain multiple dated entries. "datum" selects the schedule
 for a date in Europe/Prague; "den" is the display name of the weekday.
+Entries are grouped by "signal". As in the DIP frontend, the first signal
+in response order is selected; other channels are never combined with it.
 Low-tariff windows are the time ranges listed in "casy". High tariff is
 everything outside those windows on a day with a known schedule.
 "24:00" denotes midnight at the end of that day, including full-day windows.
@@ -27,7 +29,7 @@ today's schedule is never repeated to invent tomorrow's tariff transitions.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -132,7 +134,7 @@ def parse_hdo_signals(
     ``signals_data`` is the response's "data" object, not the outer envelope.
     ``now`` defaults to the current Prague time; a naive override is interpreted
     as Prague local time. Missing dates yield unknown values, while absent
-    signals or duplicate dates raise ValueError.
+    signals or conflicting schedules for the selected signal raise ValueError.
 
     Args:
         signals_data: The "data" portion of the DIP API response, containing
@@ -151,14 +153,21 @@ def parse_hdo_signals(
     now = now or datetime.now(PRAGUE)
     local = now.replace(tzinfo=PRAGUE) if now.tzinfo is None else now.astimezone(PRAGUE)
     today = local.date()
-    dated = {}
+    # Match DIP's getMappedSignals/initSignals default selection. Multiple
+    # channels can have different windows for the same date.
+    selected_signal = signals[0].get("signal")
+    dated: dict[date, dict[str, Any]] = {}
     for signal in signals:
+        if signal.get("signal") != selected_signal:
+            continue
         try:
             day = datetime.strptime(signal.get("datum", ""), "%d.%m.%Y").date()
         except (TypeError, ValueError):
             continue
         if day in dated:
-            raise ValueError("Ambiguous HDO schedule for one date")
+            if dated[day].get("casy") != signal.get("casy"):
+                raise ValueError("Ambiguous HDO schedule for one date")
+            continue
         dated[day] = signal
     if today not in dated:
         return UNKNOWN_HDO
