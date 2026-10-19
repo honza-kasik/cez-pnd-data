@@ -94,7 +94,7 @@ Při prvním připojení čeká až 60 sekund na dostupnost brokeru. Hodnoty vš
 
 Prázdné `electrometer_id` nebo hodnota `auto` spustí detekci ID ze seznamu elektroměrů v chráněném endpointu PND `GET /cezpnd2/external/dashboard/window/definition`. Detekce nevyžaduje naměřená data. Bez výsledku počká do dalšího cyklu; při více různých ID vyžádá explicitní konfiguraci `electrometers`. Volitelné `ean` se přiřadí pouze k jednomu jednoznačně nalezenému elektroměru.
 
-HDO používá rozvrh pro aktuální datum v časové zóně Europe/Prague. Neznámý dnešní rozvrh nebo další přepnutí se zobrazí jako `unknown`; doplněk nepřebírá automaticky včerejší rozvrh. Bez EAN zůstávají HDO hodnoty neznámé, PND data se načítají dál.
+HDO používá rozvrh pro aktuální datum v časové zóně Europe/Prague. Pokud DIP vrátí více signálů, doplněk stejně jako portál vybere první signál v pořadí odpovědi a používá jej pro všechny dny. Časy různých signálů neslučuje; vybraný signál zobrazuje senzor HDO Signal. Shodné opakované rozvrhy přijme, konfliktní rozvrhy stejného signálu a data odmítne. Neznámý dnešní rozvrh nebo další přepnutí se zobrazí jako `unknown`; doplněk nepřebírá automaticky včerejší rozvrh. Bez EAN zůstávají HDO hodnoty neznámé, PND data se načítají dál.
 
 ## Konfigurace více elektroměrů
 
