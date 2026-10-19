@@ -22,7 +22,7 @@ from .blocking import run_blocking
 from .dip_client import DipMaintenanceError, DipTokenError
 from .hdo_parser import UNKNOWN_HDO, parse_hdo_signals
 from .parser import CezDataParser
-from .pnd_protocol import PndFetchError, SessionExpiredError
+from .pnd_protocol import PndFetchError, SessionExpiredError, request_meter_ids
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,14 @@ class Orchestrator:
             logger.warning("[%s] %s — skipping cycle", PORTAL_MAINTENANCE, e)
             await self._clear_all_hdo()
             return
+        except PndFetchError as e:
+            logger.error(
+                "[%s] PND session validation failed: %s — skipping cycle",
+                CEZ_FETCH_ERROR,
+                e,
+            )
+            await self._clear_all_hdo()
+            return
         except Exception as e:
             logger.error(
                 "[%s] Auth failure — cannot obtain session: %s — skipping cycle",
@@ -160,9 +168,9 @@ class Orchestrator:
         cookies = session.cookies
         if not self._meters:
             try:
-                if not await self._discover_meter(cookies):
+                if not await self._discover_meter():
                     return
-            except (SessionExpiredError, ServiceMaintenanceError) as exc:
+            except (SessionExpiredError, ServiceMaintenanceError, PndFetchError) as exc:
                 logger.warning("Meter discovery deferred: %s", exc)
                 return
 
@@ -453,31 +461,11 @@ class Orchestrator:
         await run_blocking(self._mqtt.start)
         await run_blocking(self._mqtt.publish_discovery)
 
-    async def _discover_meter(self, cookies):
-        today = datetime.now(ZoneInfo("Europe/Prague"))
-        ids = set()
-        import re
-
-        for day in (today, today - timedelta(days=1)):
-            try:
-                payload = await self._fetch_assembly(
-                    cookies,
-                    "",
-                    -1003,
-                    day.strftime("%d.%m.%Y 00:00"),
-                    day.strftime("%d.%m.%Y 23:59"),
-                )
-            except (SessionExpiredError, ServiceMaintenanceError):
-                raise
-            except Exception:
-                logger.warning("Meter discovery request failed; will retry")
-                continue
-            for col in (payload or {}).get("columns", []):
-                match = re.fullmatch(r"(?:\+A|-A|Rv)/(\d+)", col.get("name", ""))
-                if match:
-                    ids.add(match.group(1))
-            if ids:
-                break
+    async def _discover_meter(self):
+        ids = self._session.meter_ids
+        if ids is None:
+            ids = await request_meter_ids(self._session.context)
+        ids = set(ids)
         if len(ids) > 1:
             raise ValueError(
                 "Multiple meter IDs detected; configure electrometers explicitly"

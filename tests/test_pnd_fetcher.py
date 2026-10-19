@@ -103,13 +103,13 @@ class TestPndFetcher:
                 date_to="14.02.2026 00:00",
             )
 
-        # WAF warmup + actual form request = 2 calls
+        # WAF warmup + actual JSON request = 2 calls
         assert mock_context.request.post.call_count == 2
         # First call: WAF warmup (JSON)
         warmup_call = mock_context.request.post.call_args_list[0]
         assert warmup_call[0][0] == PND_DATA_URL
         assert "Content-Type" in warmup_call[1].get("headers", {})
-        # Second call: actual form request
+        # Second call: actual JSON request
         form_call = mock_context.request.post.call_args_list[1]
         assert form_call[0][0] == PND_DATA_URL
 
@@ -164,7 +164,7 @@ class TestPndFetcher:
             )
 
         call_kwargs = mock_context.request.post.call_args[1]
-        sent_payload = call_kwargs["form"]
+        sent_payload = call_kwargs["data"]
         assert sent_payload["idAssembly"] == -1021
         assert sent_payload["intervalFrom"] == "15.02.2026 00:00"
         assert sent_payload["electrometerId"] == "784703"
@@ -224,7 +224,7 @@ class TestPndFetcher:
                 date_to="14.02.2026 00:00",
             )
 
-        sent_payload = mock_context.request.post.call_args[1]["form"]
+        sent_payload = mock_context.request.post.call_args[1]["data"]
         assert sent_payload["electrometerId"] == "999999"
 
     @pytest.mark.asyncio
@@ -242,7 +242,7 @@ class TestPndFetcher:
                 date_to="14.02.2026 00:00",
             )
 
-        sent_payload = mock_context.request.post.call_args[1]["form"]
+        sent_payload = mock_context.request.post.call_args[1]["data"]
         assert sent_payload["electrometerId"] == ""
 
     @pytest.mark.asyncio
@@ -339,7 +339,7 @@ class TestFetchOneInContext:
         mock_context.request.post.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_form_payload_normalization(self) -> None:
+    async def test_json_payload_normalization(self) -> None:
         mock_context = self._build_mock_context()
         fetcher = PndFetcher()
 
@@ -347,7 +347,7 @@ class TestFetchOneInContext:
             mock_context, None, -1003, "20.02.2026 00:00", "20.02.2026 23:59"
         )
 
-        sent = mock_context.request.post.call_args[1]["form"]
+        sent = mock_context.request.post.call_args[1]["data"]
         assert sent["electrometerId"] == ""
 
     @pytest.mark.asyncio

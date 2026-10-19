@@ -58,12 +58,14 @@ async def test_captured_rv_value_reaches_legacy_mqtt_topic_without_conversion():
         ("Profil +Rc", "reactive_import_capacitive"),
     ],
 )
-async def test_reactive_quadrants_keep_var_metadata_and_unscaled_values(profile, key):
+async def test_reactive_quadrants_keep_source_kvar_scale_and_mqtt_identity(
+    profile, key
+):
     payload = {
         "hasData": True,
         "columns": [
             {"id": "t", "name": "Datum"},
-            {"id": "q", "name": profile, "unit": "var"},
+            {"id": "q", "name": profile, "unit": "kVAr"},
         ],
         "values": [{"t": {"v": "14.02.2026 00:15"}, "q": {"v": "0,31"}}],
     }
@@ -83,4 +85,16 @@ async def test_reactive_quadrants_keep_var_metadata_and_unscaled_values(profile,
     )
     definition = next(d for d in get_sensor_definitions() if d.key == key)
     assert definition.device_class == "reactive_power"
-    assert definition.unit_of_measurement == "var"
+    assert definition.unit_of_measurement == "kvar"
+    client.reset_mock()
+    MqttPublisher(client, electrometer_id="123").publish_discovery()
+    topic = f"homeassistant/sensor/cez_pnd_123/{key}/config"
+    configs = {
+        call.args[0]: json.loads(call.kwargs["payload"])
+        for call in client.publish.call_args_list
+        if call.kwargs["payload"] and call.args[0].endswith("/config")
+    }
+    config = configs[topic]
+    assert config["unit_of_measurement"] == "kvar"
+    assert config["unique_id"] == f"cez_pnd_123_{key}"
+    assert config["state_topic"] == f"cez_pnd/123/{key}/state"

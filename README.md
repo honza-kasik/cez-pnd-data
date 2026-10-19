@@ -19,10 +19,10 @@ Tento add-on poskytuje **17 senzorů** (13 PND + 4 HDO) a jeden volitelný HDO b
 | CEZ Consumption Power | Odběr (+A) | kW | Tab 00 |
 | CEZ Production Power | Dodávka (-A) | kW | Tab 00 |
 | CEZ Reserved Power | Rezervovaný výkon (Rv) | kW | Tab 00 |
-| CEZ Reactive Import Ri+ | Import induktivní reaktivní (+ind) | var | Tab 03 |
-| CEZ Reactive Export Rc- | Export kapacitivní reaktivní (-cap) | var | Tab 03 |
-| CEZ Reactive Export Ri- | Export induktivní reaktivní (-ind) | var | Tab 04 |
-| CEZ Reactive Import Rc+ | Import kapacitivní reaktivní (+cap) | var | Tab 04 |
+| CEZ Reactive Import Ri+ | Import induktivní reaktivní (+ind) | kvar | Tab 03 |
+| CEZ Reactive Export Rc- | Export kapacitivní reaktivní (-cap) | kvar | Tab 03 |
+| CEZ Reactive Export Ri- | Export induktivní reaktivní (-ind) | kvar | Tab 04 |
+| CEZ Reactive Import Rc+ | Import kapacitivní reaktivní (+cap) | kvar | Tab 04 |
 | CEZ Daily Consumption | Denní odběr energie | kWh | Tab 07 |
 | CEZ Daily Production | Denní dodávka energie | kWh | Tab 07 |
 | CEZ Register Consumption (+E) | Kumulativní odběr | kWh | Tab 08 |
@@ -74,7 +74,7 @@ V konfiguraci add-onu vyplňte:
 |------|---------|-------|
 | `email` | Ano | Přihlašovací e-mail k CEZ PND |
 | `password` | Ano | Heslo k CEZ PND |
-| `electrometer_id` | Ne | ID elektroměru (auto-detekce z dat, ruční zadání jako fallback) |
+| `electrometer_id` | Ne | ID elektroměru (auto-detekce ze seznamu PND, případně ruční zadání) |
 | `electrometers` | Ne | JSON pole s více elektroměry (viz níže) |
 
 ### MQTT připojení (od 0.5.0)
@@ -89,7 +89,7 @@ Při prvním připojení čeká až 60 sekund na dostupnost brokeru. Hodnoty vš
 
 ### Automatické nalezení elektroměru
 
-Prázdné `electrometer_id` nebo hodnota `auto` spustí detekci ID ze sloupců PND. Pokud dnes není ID dostupné, doplněk zkusí včerejší data. Bez výsledku počká do dalšího cyklu; při více různých ID vyžádá explicitní konfiguraci `electrometers`. Volitelné `ean` se přiřadí pouze k jednomu jednoznačně nalezenému elektroměru.
+Prázdné `electrometer_id` nebo hodnota `auto` spustí detekci ID ze seznamu elektroměrů v chráněném endpointu PND `GET /cezpnd2/external/dashboard/window/definition`. Detekce nevyžaduje naměřená data. Bez výsledku počká do dalšího cyklu; při více různých ID vyžádá explicitní konfiguraci `electrometers`. Volitelné `ean` se přiřadí pouze k jednomu jednoznačně nalezenému elektroměru.
 
 HDO používá rozvrh pro aktuální datum v časové zóně Europe/Prague. Neznámý dnešní rozvrh nebo další přepnutí se zobrazí jako `unknown`; doplněk nepřebírá automaticky včerejší rozvrh. Bez EAN zůstávají HDO hodnoty neznámé, PND data se načítají dál.
 
@@ -138,7 +138,7 @@ ean: "85912345678901"
 │                     │◀───▶│  Orchestrator (15min polling)    │────▶│               │
 │  Login (iframe)     │     │  ├── Auth (Playwright → cookies) │     └──────┬────────┘
 │  OAuth/SAML flow    │     │  ├── PndFetcher (WAF warmup +    │            │
-└─────────────────────┘     │  │   form POST → 6 assemblies)  │            ▼
+└─────────────────────┘     │  │   JSON POST → 6 assemblies)  │            ▼
                             │  ├── DipClient (aiohttp → HDO)   │   ┌──────────────────┐
 ┌─────────────────────┐     │  ├── CezDataParser (96 rec →     │   │  Home Assistant   │
 │   CEZ PND API       │     │  │   latest reading)             │   │  (MQTT Discovery) │
@@ -159,7 +159,7 @@ ean: "85912345678901"
 1. **Playwright launch** — headless Chromium s českým locale a user-agentem
 2. **Navigace na PND** → přesměrování na DIP login portál (`dip.cezdistribuce.cz`)
 3. **Login v iframe** — detekce login formu v iframe/page, vyplnění email + heslo, submit
-4. **Čekání na redirect** — `cezpnd2/dashboard/` nebo `irj/portal` URL pattern = úspěch
+4. **Ověření přihlášení** — po přesměrování následuje ověření chráněnou JSON definicí dashboardu PND; samotná URL nestačí. Prázdný seznam elektroměrů je platný i před zpřístupněním dat po aktivaci PND.
 5. **Cookie extraction** — `context.cookies()` → uložení do `/data/session_state.json`
 6. **Session TTL** — 6 hodin (konfigurovatelné), expiry z cookie `expires` nebo TTL fallback
 7. **Auto-reauth** — při expiraci orchestrátor automaticky opakuje login
@@ -170,18 +170,22 @@ CEZ PND API vyžaduje specifický přístup kvůli WAF (Web Application Firewall
 **PND data se fetchují POUZE přes Playwright (browser automation)** — HTTP/aiohttp cesta byla odstraněna.
 
 ```
-1. WAF warmup request (JSON, očekávaný 400)
+1. Ověření přihlášení a získání dostupných elektroměrů
+   GET /cezpnd2/external/dashboard/window/definition
+   → Status 200 + JSON se seznamem electrometers
+
+2. Přípravný request pro načítání sestav (JSON)
    POST /cezpnd2/external/data (Playwright browser)
    Content-Type: application/json
    Body: {"format":"table","idAssembly":-1003,...}
-   → Status 400 (expected — sets WAF cookies/state)
+   → Chybová odpověď je možná; rozhoduje až následující požadavek
 
-2. Pauza 1 sekunda
+3. Pauza 1 sekunda
 
-3. Skutečný data request (form-encoded)
+4. Skutečný data request pro vybraný elektroměr (JSON, původní Playwright data=dict)
    POST /cezpnd2/external/data (Playwright browser)
-   Content-Type: application/x-www-form-urlencoded   ← KRITICKÉ
-   Body: format=table&idAssembly=-1003&...
+   Content-Type: application/json
+   Body: {"format":"table","idAssembly":-1003,...}
    → Status 200 + JSON data
 ```
 
@@ -273,7 +277,9 @@ Původní `sensor` nízkého tarifu zůstává; opravuje se pouze jeho neplatná
 
 ### Oprava významu Rv
 
-Podle [manuálu ČEZ PND, strana 5](https://www.cezdistribuce.cz/file/edee/distribuce/pnd/portal_namerenych_dat_manual.pdf#page=5) znamená RV rezervovaný výkon. Od 0.5.0 se proto výchozí název senzoru mění na „Reserved Power / Rezervovaný výkon“ a device class na `power`. Jednotka zůstává `kW`, hodnoty se nepřepočítávají. Čtyři samostatné jalové kanály Ri/Rc nadále používají `var` a `reactive_power`.
+Podle [manuálu ČEZ PND, strana 5](https://www.cezdistribuce.cz/file/edee/distribuce/pnd/portal_namerenych_dat_manual.pdf#page=5) znamená RV rezervovaný výkon. Od 0.5.0 se proto výchozí název senzoru mění na „Reserved Power / Rezervovaný výkon“ a device class na `power`. Jednotka zůstává `kW`, hodnoty se nepřepočítávají. Čtyři samostatné jalové kanály Ri/Rc používají `kvar` a `reactive_power`. Živá odpověď ČEZ uvádí `kVAr`; doplněk zachovává číselné hodnoty a používá zápis jednotky podporovaný Home Assistantem. Původní `var` chybně označovalo hodnoty v tisíckrát menší jednotce.
+
+Identifikátory a témata Ri/Rc se nemění. MQTT Discovery opraví jednotku při spuštění doplňku; u ručních MQTT senzorů změňte `unit_of_measurement` na `kvar`. Zkontrolujte prahy automatizací a vlastní převody jednotek. Oprava discovery zpětně neopravuje dříve uloženou historii se špatnou jednotkou; před aktualizací proveďte zálohu a případné problémy statistik řešte v Home Assistantu.
 
 Pro kompatibilitu zůstávají historické identifikátory: unique_id `cez_pnd_{meter_id}_reactive`, stavové téma `cez_pnd/{meter_id}/reactive/state` i discovery téma `homeassistant/sensor/cez_pnd_{meter_id}/reactive/config`. Parser zachovává historická jména `reactive_kw` a `reactive_col_id`. Existující entity, historie a vlastní uživatelské názvy zůstávají zachovány; dříve uložené hodnoty Rv představují rezervovaný výkon, nikoliv jalový výkon. Pokud Home Assistant původní neplatnou konfiguraci odmítal, senzor se po opravě může vytvořit poprvé.
 
@@ -291,8 +297,9 @@ Pro kompatibilitu zůstávají historické identifikátory: unique_id `cez_pnd_{
 | Symptom | Příčina | Log marker | Řešení |
 |---------|---------|------------|--------|
 | `302 Redirect` místo dat | Expirované cookies / chybí browser context | `SESSION_EXPIRED` | Auto-reauth, případně restart |
-| `400 Bad Request` z PND API | Chybný Content-Type (JSON místo form) | — | Interní chyba — viz WAF warmup flow |
-| HTML místo JSON odpovědi | WAF warmup selhal | — | Restart → warmup se opakuje |
+| `400 Bad Request` z PND API | Odmítnutý nebo neplatný požadavek | `CEZ_FETCH_ERROR` | Porovnejte s dostupností PND v prohlížeči |
+| HTML místo JSON odpovědi | Přihlašovací stránka, ochrana portálu nebo jiná HTML odpověď | `category: login / portal-protection / unrecognized-html` | Zkontrolujte kategorii v logu; HTML ani cookies se nelogují |
+| `500 Internal Server Error` z PND API | Interní chyba služby PND; nemusí jít o chybné heslo | `CEZ_FETCH_ERROR` | Ověřte PND v běžném prohlížeči; při stejné chybě vyčkejte nebo kontaktujte podporu ČEZ |
 | `hasData=false` pro všechny assembly | Žádná data pro dnešek | `NO_DATA_AVAILABLE` | Zkontrolujte PND portál ručně |
 | `Login failed` | Špatné přihlašovací údaje | — | Ověřte email/heslo na portálu |
 | CEZ portál údržba | Portál-wide výpadek (login stránka jako údržba) | `PORTAL_MAINTENANCE` | Čekejte na obnovení CEZ portálu |
@@ -356,7 +363,7 @@ Pro kompatibilitu zůstávají historické identifikátory: unique_id `cez_pnd_{
 
 **Řešení:**
 1. Ověřte na CEZ portálu, že data pro vaši odběrnou místo existují
-2. Zkontrolujte `electrometer_id` — auto-detekce vyžaduje alespoň jeden validní sloupec (+A, -A nebo Rv)
+2. Zkontrolujte `electrometer_id` — auto-detekce vyžaduje právě jeden elektroměr v seznamu PND. Po aktivaci PND může zpřístupnění dat trvat až pět pracovních dnů podle oznámení portálu.
 3. Pro manuální nastavení ID elektroměru ho zadejte v konfiguraci add-onu
 4. Assembly `-1027` (registrové stavy) automaticky zkouší včerejší den pokud dnes nejsou data
 
@@ -373,7 +380,7 @@ Pro kompatibilitu zůstávají historické identifikátory: unique_id `cez_pnd_{
 
 ```
 1. ensure_session()     → load cookies / Playwright login pokud expirované
-2. fetch_all_assemblies → 6× PND API call (Playwright WAF warmup + form POST)
+2. fetch_all_assemblies → 6× PND API call (Playwright WAF warmup + JSON POST)
 3. CezDataParser        → parse 96 čtvrthodinových záznamů → latest reading
 4. publish_state()      → 13 PND senzorů na MQTT
 5. fetch_hdo()          → DIP API token + signals (pokud EAN nastaven)
@@ -454,7 +461,7 @@ addon/
   config.yaml              # HA add-on konfigurace (arch, options, services)
   src/
     __init__.py
-    main.py                # Entry point, PndFetcher (Playwright WAF warmup + form POST)
+    main.py                # Entry point, PndFetcher (Playwright WAF warmup + JSON POST)
     auth.py                # Playwright autentizace (DIP login, iframe, cookies)
     session_manager.py     # Session persistence (6h TTL, /data/session_state.json)
     orchestrator.py        # Polling loop, 6 assemblies, retry, reauth, maintenance handling

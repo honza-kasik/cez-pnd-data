@@ -41,7 +41,6 @@ class MQTTClientWrapper:
         self._ready = threading.Event()
         self._connected = threading.Event()
         self._lock = threading.Lock()
-        self._replay_lock = threading.Lock()
         self._disconnect_lock = threading.Lock()
         self._shutdown = threading.Event()
         self._replay_requested = threading.Event()
@@ -51,7 +50,6 @@ class MQTTClientWrapper:
         self._retained: dict[str, tuple[str, int]] = {}
         self._will: tuple[str, str, int, bool] | None = None
         self._ever_connected = False
-        self._stopping = False
         self._error: str | None = None
 
     def _on_connect(
@@ -65,7 +63,7 @@ class MQTTClientWrapper:
             self._error = f"MQTT authentication/connection rejected: {reason_code}"
         else:
             self._connected.set()
-            if self._ever_connected and not self._stopping:
+            if self._ever_connected and not self._shutdown.is_set():
                 # Never wait for PUBACK from the Paho network thread itself.
                 self._replay_requested.set()
             self._ever_connected = True
@@ -86,22 +84,24 @@ class MQTTClientWrapper:
             self._replay()
 
     def _replay(self) -> None:
-        with self._replay_lock:
+        # Only the replay worker calls this in production.
+        with self._lock:
+            topics = list(self._retained)
+        for topic in topics:
             while not self._shutdown.is_set() and self._connected.is_set():
-                with self._lock:
-                    topics = list(self._retained)
                 try:
-                    for topic in topics:
-                        with self._lock:
-                            payload, qos = self._retained[topic]
-                            self._send(topic, payload, qos, True)
-                    return
+                    with self._lock:
+                        payload, qos = self._retained[topic]
+                        self._send(topic, payload, qos, True)
+                    break
                 except (ConnectionError, TimeoutError, RuntimeError):
                     logger.warning("MQTT reconnect replay interrupted; retrying")
                     # A delayed PUBACK need not cause another on_connect callback.
-                    # Keep recovery alive while connected, and stop promptly.
+                    # Retry this topic without repeating acknowledged topics.
                     if self._shutdown.wait(self._replay_retry_delay):
                         return
+            else:
+                return
 
     def will_set(
         self, topic: str, payload: str, qos: int = 1, retain: bool = True
@@ -194,7 +194,6 @@ class MQTTClientWrapper:
 
     def begin_shutdown(self) -> None:
         """Interrupt connection/replay/ack waits without blocking the event loop."""
-        self._stopping = True
         self._shutdown.set()
         self._ready.set()
         self._replay_requested.set()

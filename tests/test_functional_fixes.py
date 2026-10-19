@@ -131,13 +131,18 @@ async def test_supervisor_transient_failure_and_final_failure(http_server, monke
 
 
 @pytest.mark.asyncio
-async def test_real_playwright_form_encoding_and_redirect_classification(
+async def test_real_playwright_original_json_encoding_and_redirect_classification(
     http_server, monkeypatch
 ):
     captured = []
 
     async def handler(request):
-        captured.append((request.content_type, dict(await request.post())))
+        if request.content_type != "application/json":
+            return web.Response(
+                text="<html>The requested URL was rejected.</html>",
+                content_type="text/html",
+            )
+        captured.append((request.content_type, await request.json()))
         if request.path == "/redirect":
             raise web.HTTPFound("/login")
         return web.json_response(READING)
@@ -155,10 +160,10 @@ async def test_real_playwright_form_encoding_and_redirect_classification(
             )
             assert captured == [
                 (
-                    "application/x-www-form-urlencoded",
+                    "application/json",
                     {
                         "format": "table",
-                        "idAssembly": "-1003",
+                        "idAssembly": -1003,
                         "idDeviceSet": "",
                         "intervalFrom": "today",
                         "intervalTo": "today",
@@ -206,7 +211,9 @@ def test_shared_credentials_and_legacy_auto(monkeypatch, tmp_path):
 
 
 def build_orchestrator(fetcher=None, meters=None, **kwargs):
-    auth = SimpleNamespace(ensure_session=AsyncMock(return_value=AuthSession([], True)))
+    auth = SimpleNamespace(
+        ensure_session=AsyncMock(return_value=AuthSession([], True, meter_ids=["123"]))
+    )
     publisher = MagicMock()
     config = OrchestratorConfig(
         [{"electrometer_id": "123", "ean": ""}] if meters is None else meters,
@@ -235,13 +242,11 @@ async def test_auto_discovery_initializes_real_id_and_optional_ean():
 async def test_auto_discovery_missing_and_ambiguous():
     fetch = AsyncMock(return_value={"hasData": False})
     orch, auth, publisher = build_orchestrator(fetcher=fetch, meters=[])
+    auth.ensure_session.return_value.meter_ids = []
     await orch.run_once()
-    assert fetch.await_count == 2
+    fetch.assert_not_awaited()
     publisher.start.assert_not_called()
-    ambiguous = dict(
-        READING, columns=READING["columns"] + [{"id": "b", "name": "-A/456"}]
-    )
-    fetch.return_value = ambiguous
+    auth.ensure_session.return_value.meter_ids = ["123", "456"]
     with pytest.raises(ValueError, match="Multiple meter"):
         await orch.run_once()
     publisher.start.assert_not_called()
@@ -313,7 +318,7 @@ async def test_force_refresh_invalidates_valid_session_and_closes_resources(tmp_
 @pytest.mark.asyncio
 async def test_portal_url_is_not_login_proof():
     page = AsyncMock()
-    page.context.request.post.return_value = SimpleNamespace(
+    page.context.request.get.return_value = SimpleNamespace(
         status=200,
         headers={"content-type": "text/html"},
         text=AsyncMock(return_value='<form><input name="username"></form>'),
@@ -325,13 +330,21 @@ async def test_portal_url_is_not_login_proof():
 
 
 @pytest.mark.asyncio
-async def test_login_probe_waits_for_sso_redirect(monkeypatch):
+async def test_login_probe_waits_for_sso_redirect(monkeypatch, http_server):
     authenticated = False
+
+    async def dashboard(request):
+        if request.path == "/":
+            raise web.HTTPFound("/external/dashboard/view")
+        return web.Response(text="<html>Portal</html>", content_type="text/html")
+
+    base = await http_server(dashboard)
+    monkeypatch.setattr("addon.src.auth.PND_BASE_URL", base)
 
     async def probe(*args):
         if not authenticated:
             raise PndFetchError("SSO was interrupted before the authenticated redirect")
-        return {"hasData": False}
+        return ["123"]
 
     async def portal(route):
         nonlocal authenticated
@@ -339,13 +352,13 @@ async def test_login_probe_waits_for_sso_redirect(monkeypatch):
             authenticated = True
         body = (
             "<script>setTimeout(() => location.href = "
-            '"/cezpnd2/dashboard/view?complete=1", 200)</script>'
+            '"/cezpnd2/external/dashboard/view?complete=1", 200)</script>'
             if route.request.url.endswith("/login")
             else "<html>Portal</html>"
         )
         await route.fulfill(content_type="text/html", body=body)
 
-    monkeypatch.setattr("addon.src.auth.request_data", probe)
+    monkeypatch.setattr("addon.src.auth.request_meter_ids", probe)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
@@ -356,8 +369,30 @@ async def test_login_probe_waits_for_sso_redirect(monkeypatch):
             await page.goto("https://pnd.cezdistribuce.cz/cezpnd2/login")
             await asyncio.wait_for(_wait_for_login_success(page), timeout=15)
             assert authenticated
+            assert page.url == base + "/external/dashboard/view"
         finally:
             await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_pnd_server_error_during_login_is_not_reported_as_expired_credentials(
+    caplog,
+):
+    auth = SimpleNamespace(
+        ensure_session=AsyncMock(side_effect=PndFetchError("HTTP 500", status_code=500))
+    )
+    publisher = MagicMock()
+    orchestrator = Orchestrator(
+        OrchestratorConfig([{"electrometer_id": "123", "ean": ""}]),
+        auth,
+        AsyncMock(),
+        publisher,
+    )
+    await orchestrator.run_once()
+    assert "[CEZ_FETCH_ERROR]" in caplog.text
+    assert "HTTP 500" in caplog.text
+    assert "[SESSION_EXPIRED]" not in caplog.text
+    publisher.publish_state.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -366,9 +401,9 @@ async def test_login_probe_retries_temporary_non_json_but_never_accepts_it(recov
     page = AsyncMock()
     page.content.return_value = "Portal"
     error = PndFetchError("PND fetch returned non-JSON response")
-    probe = AsyncMock(side_effect=[error, {"hasData": False}] if recovers else error)
+    probe = AsyncMock(side_effect=[error, ["123"]] if recovers else error)
     with (
-        patch("addon.src.auth.request_data", probe),
+        patch("addon.src.auth.request_meter_ids", probe),
         patch("addon.src.auth.asyncio.sleep", new=AsyncMock()),
     ):
         if recovers:
