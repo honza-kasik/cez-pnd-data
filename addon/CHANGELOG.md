@@ -2,6 +2,8 @@
 
 ## 0.5.0
 
+- Parse space-grouped Czech numbers, including non-breaking spaces in PND register readings, so consumption and tariff register values reach MQTT instead of remaining unknown.
+
 **Breaking MQTT availability change:** `cez_pnd/{meter_id}/availability` is replaced by `cez_pnd/availability`. Update manually configured sensors and MQTT triggers before upgrading; see the README upgrade guide. Discovery-managed entities are updated in place. Old retained availability messages are removed only after all discovery configurations have been acknowledged.
 
 - Preserve the original HDO tariff `sensor` and correct its metadata. Add a distinct binary sensor disabled by default; existing dashboard and automation references do not need to change.

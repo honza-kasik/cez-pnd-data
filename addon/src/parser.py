@@ -62,13 +62,15 @@ _TIMESTAMP_PATTERN = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$"
 def parse_czech_decimal(value: Optional[str]) -> Optional[float]:
     """Convert Czech decimal format string to float.
 
-    '1,42' -> 1.42, '0,0' -> 0.0.
+    '1,42' -> 1.42, '0,0' -> 0.0. Space thousands separators are ignored.
     Returns None for None, empty, or unparseable values.
     """
     if value is None or value == "":
         return None
     try:
-        return float(value.replace(",", "."))
+        # PND register readings use non-breaking spaces between digit groups.
+        normalized = value.replace(" ", "").replace("\u00a0", "").replace("\u202f", "")
+        return float(normalized.replace(",", "."))
     except (ValueError, AttributeError):
         return None
 

@@ -75,7 +75,10 @@ V konfiguraci add-onu vyplňte:
 | `email` | Ano | Přihlašovací e-mail k CEZ PND |
 | `password` | Ano | Heslo k CEZ PND |
 | `electrometer_id` | Ne | ID elektroměru (auto-detekce ze seznamu PND, případně ruční zadání) |
+| `ean` | Pro HDO | EAN odběrného místa z faktury nebo portálu ČEZ; nevyplňuje se automaticky |
 | `electrometers` | Ne | JSON pole s více elektroměry (viz níže) |
+
+**ID elektroměru není EAN.** `electrometer_id` označuje fyzický elektroměr a slouží pro naměřená data PND. `ean` označuje odběrné místo a je potřeba pro rozvrhy HDO. Automatická detekce zjistí pouze ID elektroměru; EAN vyplňte ručně jako text v uvozovkách. Pokud zůstane prázdný, PND funguje dál, ale HDO senzory budou `unknown`. Při použití seznamu `electrometers` vyplňte EAN u každého elektroměru v tomto seznamu.
 
 ### MQTT připojení (od 0.5.0)
 
@@ -364,6 +367,7 @@ Pro kompatibilitu zůstávají historické identifikátory: unique_id `cez_pnd_{
 **Řešení:**
 1. Ověřte na CEZ portálu, že data pro vaši odběrnou místo existují
 2. Zkontrolujte `electrometer_id` — auto-detekce vyžaduje právě jeden elektroměr v seznamu PND. Po aktivaci PND může zpřístupnění dat trvat až pět pracovních dnů podle oznámení portálu.
+   Číselné hodnoty s oddělovači tisíců (např. `1 234,56`) doplněk podporuje. Pokud ČEZ pro konkrétní kanál vrací prázdné hodnoty nebo jej vůbec neposkytuje, senzor může zůstat `unknown`; chybějící data se nenahrazují nulou.
 3. Pro manuální nastavení ID elektroměru ho zadejte v konfiguraci add-onu
 4. Assembly `-1027` (registrové stavy) automaticky zkouší včerejší den pokud dnes nejsou data
 
