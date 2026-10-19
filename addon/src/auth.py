@@ -4,19 +4,15 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
-from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Playwright  # type: ignore[import-not-found]
 
 from .pnd_protocol import (
-    PND_DATA_URL,
     PndFetchError,
     ServiceMaintenanceError,
-    build_pnd_payload,
-    request_data,
+    request_meter_ids,
 )
 from .session_manager import (
     Credentials,
@@ -42,6 +38,7 @@ class AuthSession:
     reused: bool
     browser: Browser | None = None
     context: BrowserContext | None = None
+    meter_ids: list[str] | None = None
 
     @property
     def has_live_context(self) -> bool:
@@ -153,7 +150,7 @@ class PlaywrightAuthClient:
             await submit_locator.click()
 
             logger.debug("Waiting for login success")
-            await _wait_for_login_success(page)
+            meter_ids = await _wait_for_login_success(page)
             cookies = await context.cookies()
             self._session_store.set_live_context(context, browser)
             logger.info("Login successful, got %d cookies", len(cookies))
@@ -162,6 +159,7 @@ class PlaywrightAuthClient:
                 reused=False,
                 browser=browser,
                 context=context,
+                meter_ids=meter_ids,
             )
         except BaseException:
             try:
@@ -172,7 +170,7 @@ class PlaywrightAuthClient:
             raise
 
 
-async def _wait_for_login_success(page: Any) -> None:
+async def _wait_for_login_success(page: Any) -> list[str]:
     # A portal URL can still be the login form. Only protected JSON proves login.
     try:
         await page.wait_for_url(
@@ -185,29 +183,15 @@ async def _wait_for_login_success(page: Any) -> None:
         )
         # Let PND select its current dashboard route; /dashboard/view is a 404.
         await page.goto(PND_BASE_URL, wait_until="domcontentloaded")
-        # Match the established live-verification flow: let the dashboard finish
-        # establishing the browser session before making direct API requests.
-        await asyncio.sleep(5)
-        today = datetime.now(ZoneInfo("Europe/Prague"))
-        start = today.strftime("%d.%m.%Y 00:00")
-        end = today.strftime("%d.%m.%Y 23:59")
-        context = page.context
-        try:
-            await context.request.post(
-                PND_DATA_URL, data=build_pnd_payload(-1003, start, end, None)
-            )
-        except Exception:
-            logger.debug("Authentication warmup failed", exc_info=True)
-        await asyncio.sleep(1)
         for attempt in range(3):
             try:
-                await request_data(context, None, -1003, start, end)
-                break
+                return await request_meter_ids(page.context)
             except PndFetchError as exc:
                 if exc.status_code is not None or attempt == 2:
                     raise
                 logger.warning("PND session validation not ready; retrying in 2s")
                 await asyncio.sleep(2)
+        raise AssertionError("PND validation retries exhausted")
     except Exception as exc:
         content = (await page.content()).lower()
         if "odstávka" in content or "odstavka" in content:
