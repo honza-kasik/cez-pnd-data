@@ -75,7 +75,10 @@ V konfiguraci add-onu vyplňte:
 | `email` | Ano | Přihlašovací e-mail k CEZ PND |
 | `password` | Ano | Heslo k CEZ PND |
 | `electrometer_id` | Ne | ID elektroměru (auto-detekce ze seznamu PND, případně ruční zadání) |
+| `ean` | Pro HDO | EAN odběrného místa z faktury nebo portálu ČEZ; nevyplňuje se automaticky |
 | `electrometers` | Ne | JSON pole s více elektroměry (viz níže) |
+
+**ID elektroměru není EAN.** `electrometer_id` označuje fyzický elektroměr a slouží pro naměřená data PND. `ean` označuje odběrné místo a je potřeba pro rozvrhy HDO. Automatická detekce zjistí pouze ID elektroměru; EAN vyplňte ručně jako text v uvozovkách. Pokud zůstane prázdný, PND funguje dál, ale HDO senzory budou `unknown`. Při použití seznamu `electrometers` vyplňte EAN u každého elektroměru v tomto seznamu.
 
 ### MQTT připojení (od 0.5.0)
 
