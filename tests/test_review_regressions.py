@@ -331,21 +331,21 @@ def test_outage_caches_all_new_meter_and_hdo_values_before_first_send():
     client.disconnect()
 
 
-def test_replay_recovers_from_delayed_ack_without_another_reconnect():
+@pytest.mark.parametrize("failed_index", [0, 1, 2])
+def test_replay_recovers_from_delayed_ack_without_repeating_acknowledged_topics(
+    failed_index,
+):
     client, raw = transport_mock()
     client._connected.set()
-    client.cache_retained([("config/one", "one"), ("config/two", "two")])
-    raw.publish.return_value.wait_for_publish.side_effect = [
-        TimeoutError("slow ACK"),
-        None,
-        None,
-    ]
+    topics = ["config/one", "config/two", "config/three"]
+    client.cache_retained([(topic, topic) for topic in topics])
+    acknowledgements = [None] * len(topics)
+    acknowledgements.insert(failed_index, TimeoutError("slow ACK"))
+    raw.publish.return_value.wait_for_publish.side_effect = acknowledgements
     client._replay()
-    assert [call.args[0] for call in raw.publish.call_args_list] == [
-        "config/one",
-        "config/one",
-        "config/two",
-    ]
+    expected = topics.copy()
+    expected.insert(failed_index, topics[failed_index])
+    assert [call.args[0] for call in raw.publish.call_args_list] == expected
     client.disconnect()
 
 
