@@ -76,32 +76,32 @@ _SENSOR_DEFINITIONS: list[SensorDefinition] = [
         device_class="power",
         icon="mdi:sine-wave",
     ),
-    # New reactive power sensors (from Tab 03/04, 15-min, var)
+    # New reactive power sensors (from Tab 03/04, 15-min, kvar)
     SensorDefinition(
         key="reactive_import_inductive",
         name="CEZ {id} Reactive Import Ri+ / Import induktivní",
-        unit_of_measurement="var",
+        unit_of_measurement="kvar",
         device_class="reactive_power",
         icon="mdi:sine-wave",
     ),
     SensorDefinition(
         key="reactive_export_capacitive",
         name="CEZ {id} Reactive Export Rc- / Export kapacitivní",
-        unit_of_measurement="var",
+        unit_of_measurement="kvar",
         device_class="reactive_power",
         icon="mdi:sine-wave",
     ),
     SensorDefinition(
         key="reactive_export_inductive",
         name="CEZ {id} Reactive Export Ri- / Export induktivní",
-        unit_of_measurement="var",
+        unit_of_measurement="kvar",
         device_class="reactive_power",
         icon="mdi:sine-wave",
     ),
     SensorDefinition(
         key="reactive_import_capacitive",
         name="CEZ {id} Reactive Import Rc+ / Import kapacitivní",
-        unit_of_measurement="var",
+        unit_of_measurement="kvar",
         device_class="reactive_power",
         icon="mdi:sine-wave",
     ),

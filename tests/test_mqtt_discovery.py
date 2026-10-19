@@ -93,8 +93,8 @@ class TestSensorDefinitions:
                 defs[key].state_class == "measurement"
             ), f"{key} should be measurement"
 
-    def test_reactive_power_sensors_use_var_unit(self) -> None:
-        """The four detailed reactive channels use var and reactive_power."""
+    def test_reactive_power_sensors_use_kvar_unit(self) -> None:
+        """The four detailed reactive channels use kvar and reactive_power."""
         defs = {d.key: d for d in get_sensor_definitions()}
         reactive_keys = [
             "reactive_import_inductive",
@@ -103,7 +103,7 @@ class TestSensorDefinitions:
             "reactive_import_capacitive",
         ]
         for key in reactive_keys:
-            assert defs[key].unit_of_measurement == "var", f"{key} should use var"
+            assert defs[key].unit_of_measurement == "kvar", f"{key} should use kvar"
             assert (
                 defs[key].device_class == "reactive_power"
             ), f"{key} should be reactive_power"
