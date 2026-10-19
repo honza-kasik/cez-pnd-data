@@ -364,6 +364,7 @@ Pro kompatibilitu zůstávají historické identifikátory: unique_id `cez_pnd_{
 **Řešení:**
 1. Ověřte na CEZ portálu, že data pro vaši odběrnou místo existují
 2. Zkontrolujte `electrometer_id` — auto-detekce vyžaduje právě jeden elektroměr v seznamu PND. Po aktivaci PND může zpřístupnění dat trvat až pět pracovních dnů podle oznámení portálu.
+   Číselné hodnoty s oddělovači tisíců (např. `1 234,56`) doplněk podporuje. Pokud ČEZ pro konkrétní kanál vrací prázdné hodnoty nebo jej vůbec neposkytuje, senzor může zůstat `unknown`; chybějící data se nenahrazují nulou.
 3. Pro manuální nastavení ID elektroměru ho zadejte v konfiguraci add-onu
 4. Assembly `-1027` (registrové stavy) automaticky zkouší včerejší den pokud dnes nejsou data
 
